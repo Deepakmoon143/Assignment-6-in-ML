@@ -1,46 +1,49 @@
 import pandas as pd
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-import matplotlib.pyplot as plt
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import mean_squared_error
+import string
 
 
-data = pd.read_csv(r"C:\Users\deepu\OneDrive\Desktop\DATA SCIENCE\MACHINE LEARNING\Assignment-6\Question_1\spam.csv", encoding='ISO-8859-1')
+data = pd.read_csv(r"C:\Users\deepu\OneDrive\Desktop\DATA SCIENCE\MACHINE LEARNING\Assignment-6\Question_2\train.csv") 
 
-data.rename(columns={'v1': 'label', 'v2': 'message'}, inplace=True)
+print("Data exploration:")
+print(data.describe())
 
-data["label"] = data["label"].map({'ham': 0, 'spam': 1})
+data = data[data['target'] > 0]
 
-data["message"] = data["message"].str.lower()  
-data["message"] = data["message"].str.replace("[^\w\s]", "")  
+X_train, X_test, y_train, y_test = train_test_split(data['excerpt'], data['target'], test_size=0.2, random_state=42)
 
-vectorizer = TfidfVectorizer()
-features = vectorizer.fit_transform(data["message"])
+def preprocess_text(text):
+    text = text.lower()
+    text = text.translate(str.maketrans('', '', string.punctuation))
+    return text
 
+pipeline = Pipeline([
+    ('tfidf', TfidfVectorizer(preprocessor=preprocess_text)),
+    ('model', Ridge())
+])
 
-X_train, X_test, y_train, y_test = train_test_split(features, data["label"], test_size=0.2, random_state=42)
+parameters = {
+    'tfidf__max_features': [1000, 2000, 3000],
+    'model__alpha': [0.1, 1, 10]
+}
 
+grid_search = GridSearchCV(pipeline, parameters, cv=5, scoring='neg_mean_squared_error')
+grid_search.fit(X_train, y_train)
 
-model = MultinomialNB()
-model.fit(X_train, y_train)
+print("Best hyperparameters:", grid_search.best_params_)
 
-predictions = model.predict(X_test)
+train_preds = grid_search.predict(X_train)
+test_preds = grid_search.predict(X_test)
 
-accuracy = accuracy_score(y_test, predictions)
-precision = precision_score(y_test, predictions)
-recall = recall_score(y_test, predictions)
-f1 = f1_score(y_test, predictions)
+train_rmse = mean_squared_error(y_train, train_preds, squared=False)
+test_rmse = mean_squared_error(y_test, test_preds, squared=False)
 
-print("Accuracy:", accuracy)
-print("Precision:", precision)
-print("Recall:", recall)
-print("F1-score:", f1)
+print("Train RMSE:", train_rmse)
+print("Test RMSE:", test_rmse)
 
-conf_matrix = confusion_matrix(y_test, predictions)
-plt.matshow(conf_matrix)
-plt.title("Confusion matrix")
-plt.xlabel("Predicted")
-plt.ylabel("True")
-plt.colorbar()
-plt.show()
+best_model = grid_search.best_estimator_.named_steps['model']
+feature_names = grid_search.best_estimator_.named_steps['tfidf'].get_feature_names_out()
